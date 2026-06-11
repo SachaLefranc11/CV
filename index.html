@@ -498,6 +498,7 @@
   var lenis = null;
   if (window.Lenis){
     lenis = new Lenis({ lerp: 0.12 });
+    window.__lenis = lenis; // poignée de debug : pilote le scroll dans les outils dev
     lenis.on('scroll', ScrollTrigger.update);
     gsap.ticker.add(function(t){ lenis.raf(t * 1000); });
     gsap.ticker.lagSmoothing(0);
@@ -539,6 +540,7 @@
     var px = -9999, py = -9999, pvx = 0, pvy = 0;   // position + vitesse souris
     var R = fine ? 160 : 0, R2 = R * R;             // rayon d'influence du curseur
     var maxScroll = 1, fc = 0;
+    var spS = 0, ox = 0, oy = 0, oxPrev = 0;        // trajectoire serpentine lissée
 
     // Atlas de sprites : un disque pré-rendu par colonne (même dégradé bleu→vert),
     // rangée 2 = version "éclat". drawImage est bien plus rapide que arc()+fill()
@@ -579,13 +581,19 @@
       t += 0.014;
       if ((fc++ & 127) === 0) maxScroll = Math.max(1, document.documentElement.scrollHeight - innerHeight);
       var sp = Math.min(1, (scrollY || 0) / maxScroll);   // progression de page 0→1
+      spS += (sp - spS) * .06;                             // version lissée (fluidité)
       mx += (tx - mx) * .04; my += (ty - my) * .04;
       pvx *= .82; pvy *= .82;                              // l'élan de la souris s'estompe
       ctx.clearRect(0, 0, W, H);
-      // le paysage évolue doucement avec le scroll : horizon qui monte,
-      // houle plus ample, phase qui tourne — subtil, jamais envahissant
-      var horizon = H * (.58 - .10 * sp), fov = 320, depth = 9;
-      var ampBoost = 1 + .35 * sp, phase = sp * 4;
+      // Trajectoire serpentine : la nappe traverse l'écran de gauche à droite
+      // (et revient) au fil du scroll, avec une légère dérive verticale et une
+      // inclinaison dans les virages — comme un serpent qui descend la page.
+      ox = Math.sin(spS * Math.PI * 2.2) * W * (mobile ? .20 : .38);
+      oy = Math.sin(spS * Math.PI * 1.3 + 1) * H * .08;
+      var shear = Math.max(-34, Math.min(34, (ox - oxPrev) * 60));
+      oxPrev = ox;
+      var horizon = H * (.58 - .10 * spS), fov = 320, depth = 9;
+      var ampBoost = 1 + .35 * spS, phase = spS * 4;
       for (var zi = ROWS - 1; zi >= 0; zi--){
         var z = zi / (ROWS - 1);                           // 0 proche → 1 lointain
         var scale = fov / (fov + z * fov * depth / 3);
@@ -595,8 +603,8 @@
           var idx = zi * COLS + xi;
           var x = xi / (COLS - 1) * 2 - 1;                 // -1 → 1
           var wave = Math.sin(x * 3.2 + t + z * 4 + phase) * Math.cos(z * 5 - t * .7) * amp;
-          var bx = W / 2 + (x * W * .78 + mx * 40 * (1 - z)) * scale;
-          var by = rowY + (wave + my * 18 * (1 - z)) * scale;
+          var bx = W / 2 + ox * (1 - z * .35) + (x * W * .78 + mx * 40 * (1 - z)) * scale;
+          var by = rowY + oy * (1 - z * .5) + x * shear * (1 - z * .4) + (wave + my * 18 * (1 - z)) * scale;
           var dx = dxA[idx], dy = dyA[idx], vx = vxA[idx], vy = vyA[idx];
           var f = 0;
           if (R){
